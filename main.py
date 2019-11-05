@@ -1,4 +1,5 @@
 import boto3
+import os
 from botocore.exceptions import ClientError
 
 KEY_PAIR_NAME = "TeraKey"
@@ -74,6 +75,10 @@ def create_and_delete_key_pair():
         print(e)
 
     response = client.create_key_pair(KeyName=KEY_PAIR_NAME)
+    try:
+        os.remove("TeraKey.pem")
+    except ClientError as e:
+        print(e)
     key_file = open('TeraKey.pem', 'w+')
     key_file.write(response['KeyMaterial'])
     key_file.close()
@@ -139,9 +144,11 @@ def create_instance():
                     pip3 install pydantic
                     cd home/ubuntu
                     git clone https://github.com/FelippeTeracini/Mini_REST_Tasks.git
-                    uvicorn main:app --reload --host 0.0.0.0 --port 5000
+                    cd Mini_REST_Tasks/
+                    uvicorn main:app --reload --host "0.0.0.0" --port 5000
                         '''
     )
+print("Instance Created")
 
 
 def main():
