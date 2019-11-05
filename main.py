@@ -130,7 +130,17 @@ def create_instance():
         KeyName=KEY_PAIR_NAME,
         InstanceType="t2.micro",
         TagSpecifications=[{'ResourceType': 'instance',
-                            'Tags': [{'Key': 'Owner', 'Value': 'Tera'}, {'Key': 'Name', 'Value': 'TeraWebserverProjeto'}]}]
+                            'Tags': [{'Key': 'Owner', 'Value': 'Tera'}, {'Key': 'Name', 'Value': 'TeraWebserverProjeto'}]}],
+        UserData='''#! /bin/bash
+                    sudo apt-get update
+                    sudo apt-get -y install python3-pip
+                    pip3 install fastapi
+                    pip3 install uvicorn
+                    pip3 install pydantic
+                    cd home/ubuntu
+                    git clone https://github.com/FelippeTeracini/Mini_REST_Tasks.git
+                    uvicorn main:app --reload --host 0.0.0.0 --port 5000
+                        '''
     )
 
 
