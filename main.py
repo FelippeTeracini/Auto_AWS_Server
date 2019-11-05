@@ -82,6 +82,7 @@ def create_and_delete_key_pair():
     key_file = open('TeraKey.pem', 'w+')
     key_file.write(response['KeyMaterial'])
     key_file.close()
+    os.chmod("TeraKey.pem", 0o400)
 
 
 def create_and_delete_security_group():
@@ -91,7 +92,6 @@ def create_and_delete_security_group():
     try:
         response = client.describe_security_groups(
             GroupNames=[SECURITY_GROUP_NAME])
-        print(response)
         try:
             response = client.delete_security_group(
                 GroupName=SECURITY_GROUP_NAME)
