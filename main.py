@@ -1,5 +1,6 @@
 import boto3
 import os
+import time
 from pprint import pprint
 from botocore.exceptions import ClientError
 
@@ -197,7 +198,9 @@ def create_target_group():
         VpcId=vpc_id,
         TargetType='instance'
     )
+    arn = response['TargetGroups'][0]['TargetGroupArn']
     print("Target Group Created")
+    return arn
 
 def delete_load_balancer():
     try:
@@ -207,6 +210,7 @@ def delete_load_balancer():
             response = elbv2.delete_load_balancer(LoadBalancerArn=arn)
             waiter = elbv2.get_waiter('load_balancers_deleted')
             waiter.wait(LoadBalancerArns = [arn])
+            time.sleep(20)
             print("Load Balancer Deleted")
         except ClientError as e:
             print(e)
@@ -246,6 +250,7 @@ def create_load_balancer():
     waiter.wait(LoadBalancerArns = [arn])
     print("Load Balancer Available")
 
+    return arn
 
 def create_image():
 
@@ -291,6 +296,18 @@ def deregister_image():
     except ClientError as e:
             print(e)
 
+def create_listener(lb_arn, tg_arn):
+    response = elbv2.create_listener(
+        LoadBalancerArn = lb_arn,
+        Protocol = "HTTP",
+        Port = WEBSERVER_PORT,
+        DefaultActions = [{
+            "Type":"forward",
+            "TargetGroupArn":tg_arn
+        }]
+    )
+    print("Listener Created")
+
 def main():
     terminate_instances()
     delete_load_balancer()
@@ -302,9 +319,9 @@ def main():
     create_security_group()
     create_instance()
     create_image()
-    create_load_balancer()
-    create_target_group()
-
+    lb_arn = create_load_balancer()
+    tg_arn = create_target_group()
+    create_listener(lb_arn, tg_arn)
 
 
 main()
