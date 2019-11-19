@@ -173,7 +173,7 @@ def create_instance():
     waiter = client.get_waiter('instance_status_ok')
     waiter.wait(InstanceIds = instance_ids)
     print("Instances Running and Status OK")
-    return response['Instances'][0]['PublicIpAddress']
+    return response['Reservations'][0]['Instances'][0]['PublicIpAddress']
 
 def delete_target_group():   
     try:
@@ -446,7 +446,7 @@ def create_instance_database():
     waiter = client_ohio.get_waiter('instance_status_ok')
     waiter.wait(InstanceIds = instance_ids)
     print("Instances Running and Status OK")
-    return response['Instances'][0]['PrivateIpAddress']
+    return response['Reservations'][0]['Instances'][0]['PrivateIpAddress']
 
 def create_instance_web_mongo(server_address):
     instances = ec2_ohio.create_instances(
@@ -483,7 +483,7 @@ def create_instance_web_mongo(server_address):
     waiter = client_ohio.get_waiter('instance_status_ok')
     waiter.wait(InstanceIds = instance_ids)
     print("Instances Running and Status OK")
-    return response['Instances'][0]['PublicIpAddress']
+    return response['Reservations'][0]['Instances'][0]['PublicIpAddress']
 
 def create_security_group_ohio(client):
     response = client.describe_vpcs()
@@ -546,7 +546,7 @@ def create_instance_middleWeb(server_address):
     waiter = client.get_waiter('instance_status_ok')
     waiter.wait(InstanceIds = instance_ids)
     print("Instances Running and Status OK")
-    return response['Instances'][0]['PublicIpAddress']
+    return response['Reservations'][0]['Instances'][0]['PublicIpAddress']
 
 def main2():
     print("----- MAIN -----")
