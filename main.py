@@ -12,20 +12,27 @@ IMAGE_NAME = "TeraImage"
 LAUNCH_CONFIGURATION_NAME = "TeraLaunchConfiguration"
 AUTOSCALING_NAME = "TeraAutoscaling"
 
+SECURITY_GROUP_NAME_OHIO = "TeraSecurityGroupOhio"
+
 MIN_AUTOSCALING_SIZE = 1
 MAX_AUTOSCALING_SIZE = 3
+
+NORTH_VIRGINIA = 'us-east-1'
+OHIO = 'us-east-2'
 
 INSTANCE_TYPE = "t2.micro"
 
 WEBSERVER_PORT = 5000
 
-client = boto3.client('ec2')
-ec2 = boto3.resource('ec2')
-elbv2 = boto3.client('elbv2')
-autoscaling = boto3.client('autoscaling')
+client = boto3.client('ec2', region_name=NORTH_VIRGINIA)
+ec2 = boto3.resource('ec2', region_name=NORTH_VIRGINIA)
+elbv2 = boto3.client('elbv2', region_name=NORTH_VIRGINIA)
+autoscaling = boto3.client('autoscaling', region_name=NORTH_VIRGINIA)
 
+client_ohio = boto3.client('ec2', region_name=OHIO)
+ec2_ohio = boto3.resource('ec2', region_name=OHIO)
 
-def terminate_instances():
+def terminate_instances(client, ec2):
     try:
         response = client.describe_instances(
             Filters=[
@@ -91,21 +98,21 @@ def create_key_pair():
     os.chmod("TeraKey.pem", 0o400)
     print("Key Pair Created")
 
-def delete_security_group():
+def delete_security_group(security_group_name, client):
 
     try:
         response = client.describe_security_groups(
-            GroupNames=[SECURITY_GROUP_NAME])
+            GroupNames=[security_group_name])
         try:
             response = client.delete_security_group(
-                GroupName=SECURITY_GROUP_NAME)
+                GroupName=security_group_name)
             print('Security Group Deleted')
         except ClientError as e:
             print(e)
     except ClientError as e:
         print(e)
 
-def create_security_group():
+def create_security_group(client):
     response = client.describe_vpcs()
     vpc_id = response.get('Vpcs', [{}])[0].get('VpcId', '')
 
@@ -143,24 +150,30 @@ def create_instance():
         TagSpecifications=[{'ResourceType': 'instance',
                             'Tags': [{'Key': 'Owner', 'Value': 'Tera'}, {'Key': 'Name', 'Value': 'TeraWebserverProjeto'}]}],
         UserData='''#! /bin/bash
-                    sudo apt-get update
-                    sudo apt-get -y install python3-pip
-                    pip3 install fastapi
-                    pip3 install uvicorn
-                    pip3 install pydantic
-                    cd home/ubuntu
-                    git clone https://github.com/FelippeTeracini/Mini_REST_Tasks.git
-                    cd Mini_REST_Tasks
-                    uvicorn main:app --reload --host "0.0.0.0" --port {}
-                        '''
+                sudo apt-get update
+                sudo apt-get -y install python3-pip
+                pip3 install fastapi
+                pip3 install uvicorn
+                pip3 install pydantic
+                cd home/ubuntu
+                git clone https://github.com/FelippeTeracini/Mini_REST_Tasks.git
+                cd Mini_REST_Tasks
+                uvicorn main:app --reload --host "0.0.0.0" --port {}
+                        '''.format(WEBSERVER_PORT)
     )
     print("Instances Created")
     instance_ids = []
     for instance in instances:
         instance_ids.append(instance.id)
+    response = client.describe_instances(
+        InstanceIds=[
+        instance_ids[0],
+        ]
+    )
     waiter = client.get_waiter('instance_status_ok')
     waiter.wait(InstanceIds = instance_ids)
     print("Instances Running and Status OK")
+    return response['Instances'][0]['PublicIpAddress']
 
 def delete_target_group():   
     try:
@@ -313,7 +326,7 @@ def create_launch_configuration(image_id):
     )
     print("Launch Configuration Created")
 
-def create_launch_configuration2():
+def create_launch_configuration2(server_address):
     response = autoscaling.create_launch_configuration(
         LaunchConfigurationName=LAUNCH_CONFIGURATION_NAME,
         ImageId='ami-04b9e92b5572fa0d1',
@@ -322,16 +335,16 @@ def create_launch_configuration2():
         InstanceType = INSTANCE_TYPE,
         InstanceMonitoring={'Enabled': True},
         UserData = '''#! /bin/bash
-sudo apt-get update
-sudo apt-get -y install python3-pip
-pip3 install fastapi
-pip3 install uvicorn
-pip3 install pydantic
-cd home/ubuntu
-git clone https://github.com/FelippeTeracini/Mini_REST_Tasks.git
-cd Mini_REST_Tasks
-uvicorn main:app --reload --host "0.0.0.0" --port {}
-        '''.format(WEBSERVER_PORT)
+                    sudo apt-get update
+                    sudo apt-get -y install python3-pip
+                    pip3 install fastapi
+                    pip3 install uvicorn
+                    pip3 install pydantic
+                    cd home/ubuntu
+                    git clone https://github.com/FelippeTeracini/Mini_REST_Tasks.git
+                    cd Mini_REST_Tasks
+                    python3 redirection.py --server_address {} --port {}
+        '''.format(server_address, WEBSERVER_PORT)
     )
     print("Launch Configuration Created")
     
@@ -397,7 +410,145 @@ def delete_autoscaling():
     except ClientError as e:
         print(e)
 
-def main():
+def create_instance_database():
+    instances = ec2_ohio.create_instances(
+        ImageId='ami-04b9e92b5572fa0d1',
+        MinCount=1,
+        MaxCount=1,
+        SecurityGroups=[SECURITY_GROUP_NAME_OHIO],
+        KeyName=KEY_PAIR_NAME,
+        InstanceType=INSTANCE_TYPE,
+        TagSpecifications=[{'ResourceType': 'instance',
+                            'Tags': [{'Key': 'Owner', 'Value': 'Tera'}, {'Key': 'Name', 'Value': 'TeraMongo'}]}],
+        UserData='''#! /bin/bash
+                sudo apt-get update -y
+                sudo apt-get install gnupg
+                wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | sudo apt-key add -
+                echo "deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu bionic/mongodb-org/4.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
+                sudo apt-get install -y mongodb-org
+                echo "mongodb-org hold" | sudo dpkg --set-selections
+                echo "mongodb-org-server hold" | sudo dpkg --set-selections
+                echo "mongodb-org-shell hold" | sudo dpkg --set-selections
+                echo "mongodb-org-mongos hold" | sudo dpkg --set-selections
+                echo "mongodb-org-tools hold" | sudo dpkg --set-selections
+                sudo service mongod start
+                        '''
+    )
+    print("Instance TeraMongo Created")
+    instance_ids = []
+    for instance in instances:
+        instance_ids.append(instance.id)
+    response = client_ohio.describe_instances(
+        InstanceIds=[
+        instance_ids[0],
+        ]
+    )
+    waiter = client_ohio.get_waiter('instance_status_ok')
+    waiter.wait(InstanceIds = instance_ids)
+    print("Instances Running and Status OK")
+    return response['Instances'][0]['PrivateIpAddress']
+
+def create_instance_web_mongo(server_address):
+    instances = ec2_ohio.create_instances(
+        ImageId='ami-04b9e92b5572fa0d1',
+        MinCount=1,
+        MaxCount=1,
+        SecurityGroups=[SECURITY_GROUP_NAME],
+        KeyName=KEY_PAIR_NAME,
+        InstanceType=INSTANCE_TYPE,
+        TagSpecifications=[{'ResourceType': 'instance',
+                            'Tags': [{'Key': 'Owner', 'Value': 'Tera'}, {'Key': 'Name', 'Value': 'TeraWebMongo'}]}],
+        UserData='''#! /bin/bash
+                sudo apt-get update
+                sudo apt-get -y install python3-pip
+                pip3 install fastapi
+                pip3 install uvicorn
+                pip3 install pydantic
+                pip3 install pymongo
+                cd home/ubuntu
+                git clone https://github.com/FelippeTeracini/Mini_REST_Tasks.git
+                cd Mini_REST_Tasks
+                uvicorn main:app --reload --host "0.0.0.0" --port {}
+                        '''.format(WEBSERVER_PORT)
+    )
+    print("Instance TeraWebMongo Created")
+    instance_ids = []
+    for instance in instances:
+        instance_ids.append(instance.id)
+    response = client_ohio.describe_instances(
+        InstanceIds=[
+        instance_ids[0],
+        ]
+    )
+    waiter = client_ohio.get_waiter('instance_status_ok')
+    waiter.wait(InstanceIds = instance_ids)
+    print("Instances Running and Status OK")
+    return response['Instances'][0]['PublicIpAddress']
+
+def create_security_group_ohio(client):
+    response = client.describe_vpcs()
+    vpc_id = response.get('Vpcs', [{}])[0].get('VpcId', '')
+
+    try:
+        response = client.create_security_group(GroupName=SECURITY_GROUP_NAME_OHIO,
+                                                Description='Teras security group ohio',
+                                                VpcId=vpc_id)
+        security_group_id = response['GroupId']
+        print('Security Group Ohio Created')
+
+        data = client.authorize_security_group_ingress(
+            GroupId=security_group_id,
+            IpPermissions=[
+                {'IpProtocol': 'tcp',
+                    'FromPort': 22,
+                    'ToPort': 22,
+                    'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},
+                {'IpProtocol': 'tcp',
+                    'FromPort': '27017',
+                    'ToPort': '27017',
+                    'IpRanges': [{'CidrIp': '0.0.0.0/0'}]}
+            ])
+        print('Ingress Ohio Successfully Set')
+    except ClientError as e:
+        print(e)
+
+def create_instance_middleWeb(server_address):
+    instances = ec2.create_instances(
+        ImageId='ami-04b9e92b5572fa0d1',
+        MinCount=1,
+        MaxCount=1,
+        SecurityGroups=[SECURITY_GROUP_NAME],
+        KeyName=KEY_PAIR_NAME,
+        InstanceType=INSTANCE_TYPE,
+        TagSpecifications=[{'ResourceType': 'instance',
+                            'Tags': [{'Key': 'Owner', 'Value': 'Tera'}, {'Key': 'Name', 'Value': 'TeraWebMiddle'}]}],
+        UserData = '''#! /bin/bash
+                sudo apt-get update
+                sudo apt-get -y install python3-pip
+                pip3 install fastapi
+                pip3 install uvicorn
+                pip3 install pydantic
+                cd home/ubuntu
+                git clone https://github.com/FelippeTeracini/Mini_REST_Tasks.git
+                cd Mini_REST_Tasks
+                python3 redirection.py --server_address {} --port {}
+        '''.format(server_address, WEBSERVER_PORT)
+    )
+    print("Instance TeraWebMiddle Created")
+    instance_ids = []
+    for instance in instances:
+        instance_ids.append(instance.id)
+    response = client.describe_instances(
+        InstanceIds=[
+        instance_ids[0],
+        ]
+    )
+    waiter = client.get_waiter('instance_status_ok')
+    waiter.wait(InstanceIds = instance_ids)
+    print("Instances Running and Status OK")
+    return response['Instances'][0]['PublicIpAddress']
+
+def main2():
     print("----- MAIN -----")
     delete_autoscaling()
     terminate_instances()
@@ -418,22 +569,36 @@ def main():
     create_launch_configuration(image_id)
     create_autoscaling(tg_arn)
 
-def create_north_virginia():
+def create_north_virginia(server_address):
     print("----- create_north_virginia-----")
     delete_autoscaling()
-    terminate_instances()
+    terminate_instances(client, ec2)
     delete_load_balancer()
     delete_target_group()
     delete_key_pair()
     create_key_pair()
-    delete_security_group()
     delete_launch_configuration()
-    create_security_group()
+    delete_security_group(SECURITY_GROUP_NAME, client)
+    create_security_group(client)
+    ip_middle_web = create_instance_middleWeb(server_address)
     lb_arn = create_load_balancer()
     tg_arn = create_target_group()
     create_listener(lb_arn, tg_arn)
-    create_launch_configuration2()
+    create_launch_configuration2(ip_middle_web)
     create_autoscaling(tg_arn)
+
+def create_ohio():
+    print("----- create_ohio-----")
+    terminate_instances(client_ohio, ec2_ohio)
+    delete_security_group(SECURITY_GROUP_NAME_OHIO, client_ohio)
+    create_security_group_ohio(client_ohio)
+    ip_db = create_instance_database()
+    ip_web_mongo = create_instance_web_mongo(ip_db)
+    return ip_web_mongo
+
+def main():
+    ip_web_mongo = create_ohio()
+    create_north_virginia(ip_web_mongo)
 
 def delete_all():
     delete_autoscaling()
@@ -448,7 +613,8 @@ def delete_all():
 def create_test_instance():
     create_instance()
 
-create_test_instance()
-# create_north_virginia()
+# create_test_instance()
+create_north_virginia('http://3.88.204.96')
 # print(autoscaling.waiter_names)
 # print(client.waiter_names)
+# main()
