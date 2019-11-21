@@ -432,6 +432,8 @@ def create_instance_database():
                 echo "mongodb-org-mongos hold" | sudo dpkg --set-selections
                 echo "mongodb-org-tools hold" | sudo dpkg --set-selections
                 sudo service mongod start
+                sudo sed -i "s/127.0.0.1/0.0.0.0/g" /etc/mongod.conf
+                sudo service mongod restart
                         '''
     )
     print("Instance TeraMongo Created")
@@ -468,8 +470,9 @@ def create_instance_web_mongo(server_address):
                 cd home/ubuntu
                 git clone https://github.com/FelippeTeracini/Mini_REST_Tasks.git
                 cd Mini_REST_Tasks
-                uvicorn main:app --reload --host "0.0.0.0" --port {}
-                        '''.format(WEBSERVER_PORT)
+                export DB_IP={}
+                uvicorn main_mongo:app --reload --host "0.0.0.0" --port {}
+                        '''.format(server_address, WEBSERVER_PORT)
     )
     print("Instance TeraWebMongo Created")
     instance_ids = []
@@ -504,9 +507,9 @@ def create_security_group_ohio(client):
                     'ToPort': 22,
                     'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},
                 {'IpProtocol': 'tcp',
-                    'FromPort': '27017',
-                    'ToPort': '27017',
-                    'IpRanges': [{'CidrIp': '0.0.0.0/0'}]}
+                    'FromPort': 27017,
+                    'ToPort': 27017,
+                    'IpRanges': [{'CidrIp': '172.0.0..0/8'}]}
             ])
         print('Ingress Ohio Successfully Set')
     except ClientError as e:
@@ -581,6 +584,7 @@ def create_north_virginia(server_address):
     delete_security_group(SECURITY_GROUP_NAME, client)
     create_security_group(client)
     ip_middle_web = create_instance_middleWeb(server_address)
+    ip_middle_web = 'http://' + ip_middle_web
     lb_arn = create_load_balancer()
     tg_arn = create_target_group()
     create_listener(lb_arn, tg_arn)
@@ -594,6 +598,7 @@ def create_ohio():
     create_security_group_ohio(client_ohio)
     ip_db = create_instance_database()
     ip_web_mongo = create_instance_web_mongo(ip_db)
+    ip_web_mongo = 'http://' + ip_web_mongo
     return ip_web_mongo
 
 def main():
@@ -614,7 +619,7 @@ def create_test_instance():
     create_instance()
 
 # create_test_instance()
-create_north_virginia('http://3.88.204.96')
+# create_north_virginia('http://3.88.204.96')
 # print(autoscaling.waiter_names)
 # print(client.waiter_names)
-# main()
+main()
