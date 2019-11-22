@@ -5,6 +5,7 @@ from pprint import pprint
 from botocore.exceptions import ClientError
 
 KEY_PAIR_NAME = "TeraKey"
+KEY_PAIR_NAME_OHIO = "TeraKey_Ohio"
 SECURITY_GROUP_NAME = "TeraSecurityGroup"
 TARGET_GROUP_NAME = "TeraTargetGroup"
 LOAD_BALANCER_NAME = "TeraLoadBalancer"
@@ -75,31 +76,29 @@ def terminate_instances(client, ec2):
     except ClientError as e:
         print(e)
 
-def delete_key_pair():
+def delete_key_pair(client, name):
     try:
-        response = client.describe_key_pairs(KeyNames=[KEY_PAIR_NAME])
+        response = client.describe_key_pairs(KeyNames=[name])
         try:
-            response = client.delete_key_pair(KeyName=KEY_PAIR_NAME)
+            response = client.delete_key_pair(KeyName=name)
             print('Key Pair Deleted')
         except ClientError as e:
             print(e)
     except ClientError as e:
         print(e)
 
-def create_key_pair():
-    response = client.create_key_pair(KeyName=KEY_PAIR_NAME)
-    try:
-        os.remove("TeraKey.pem")
-    except ClientError as e:
-        print(e)
-    key_file = open('TeraKey.pem', 'w+')
+def create_key_pair(client, name, key):
+    response = client.create_key_pair(KeyName=key)
+    if(os.path.exists(name)):
+        os.remove(name)
+    key_file = open(name, 'w+')
     key_file.write(response['KeyMaterial'])
     key_file.close()
-    os.chmod("TeraKey.pem", 0o400)
+    os.chmod(name, 0o400)
     print("Key Pair Created")
 
 def delete_security_group(security_group_name, client):
-
+    time.sleep(10)
     try:
         response = client.describe_security_groups(
             GroupNames=[security_group_name])
@@ -165,13 +164,13 @@ def create_instance():
     instance_ids = []
     for instance in instances:
         instance_ids.append(instance.id)
+    waiter = client.get_waiter('instance_status_ok')
+    waiter.wait(InstanceIds = instance_ids)
     response = client.describe_instances(
         InstanceIds=[
         instance_ids[0],
         ]
     )
-    waiter = client.get_waiter('instance_status_ok')
-    waiter.wait(InstanceIds = instance_ids)
     print("Instances Running and Status OK")
     return response['Reservations'][0]['Instances'][0]['PublicIpAddress']
 
@@ -412,19 +411,20 @@ def delete_autoscaling():
 
 def create_instance_database():
     instances = ec2_ohio.create_instances(
-        ImageId='ami-04b9e92b5572fa0d1',
+        ImageId='ami-0d5d9d301c853a04a',
         MinCount=1,
         MaxCount=1,
         SecurityGroups=[SECURITY_GROUP_NAME_OHIO],
-        KeyName=KEY_PAIR_NAME,
+        KeyName=KEY_PAIR_NAME_OHIO,
         InstanceType=INSTANCE_TYPE,
         TagSpecifications=[{'ResourceType': 'instance',
                             'Tags': [{'Key': 'Owner', 'Value': 'Tera'}, {'Key': 'Name', 'Value': 'TeraMongo'}]}],
         UserData='''#! /bin/bash
-                sudo apt-get update -y
+                sudo apt update -y
                 sudo apt-get install gnupg
                 wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | sudo apt-key add -
                 echo "deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu bionic/mongodb-org/4.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
+                sudo apt-get update -y
                 sudo apt-get install -y mongodb-org
                 echo "mongodb-org hold" | sudo dpkg --set-selections
                 echo "mongodb-org-server hold" | sudo dpkg --set-selections
@@ -440,23 +440,23 @@ def create_instance_database():
     instance_ids = []
     for instance in instances:
         instance_ids.append(instance.id)
+    waiter = client_ohio.get_waiter('instance_status_ok')
+    waiter.wait(InstanceIds = instance_ids)
     response = client_ohio.describe_instances(
         InstanceIds=[
         instance_ids[0],
         ]
     )
-    waiter = client_ohio.get_waiter('instance_status_ok')
-    waiter.wait(InstanceIds = instance_ids)
     print("Instances Running and Status OK")
-    return response['Reservations'][0]['Instances'][0]['PrivateIpAddress']
+    return response['Reservations'][0]['Instances'][0]['NetworkInterfaces'][0]['PrivateIpAddresses'][0]['PrivateIpAddress']
 
 def create_instance_web_mongo(server_address):
     instances = ec2_ohio.create_instances(
-        ImageId='ami-04b9e92b5572fa0d1',
+        ImageId='ami-0d5d9d301c853a04a',
         MinCount=1,
         MaxCount=1,
         SecurityGroups=[SECURITY_GROUP_NAME],
-        KeyName=KEY_PAIR_NAME,
+        KeyName=KEY_PAIR_NAME_OHIO,
         InstanceType=INSTANCE_TYPE,
         TagSpecifications=[{'ResourceType': 'instance',
                             'Tags': [{'Key': 'Owner', 'Value': 'Tera'}, {'Key': 'Name', 'Value': 'TeraWebMongo'}]}],
@@ -471,20 +471,20 @@ def create_instance_web_mongo(server_address):
                 git clone https://github.com/FelippeTeracini/Mini_REST_Tasks.git
                 cd Mini_REST_Tasks
                 export DB_IP={}
-                uvicorn main_mongo:app --reload --host "0.0.0.0" --port {}
-                        '''.format(server_address, WEBSERVER_PORT)
+                uvicorn main_mongo:app --reload --host "0.0.0.0" --port {} &
+                curl 127.0.0.1:{}'''.format(server_address, WEBSERVER_PORT, WEBSERVER_PORT)
     )
     print("Instance TeraWebMongo Created")
     instance_ids = []
     for instance in instances:
         instance_ids.append(instance.id)
+    waiter = client_ohio.get_waiter('instance_status_ok')
+    waiter.wait(InstanceIds = instance_ids)
     response = client_ohio.describe_instances(
         InstanceIds=[
         instance_ids[0],
         ]
     )
-    waiter = client_ohio.get_waiter('instance_status_ok')
-    waiter.wait(InstanceIds = instance_ids)
     print("Instances Running and Status OK")
     return response['Reservations'][0]['Instances'][0]['PublicIpAddress']
 
@@ -509,7 +509,7 @@ def create_security_group_ohio(client):
                 {'IpProtocol': 'tcp',
                     'FromPort': 27017,
                     'ToPort': 27017,
-                    'IpRanges': [{'CidrIp': '172.0.0..0/8'}]}
+                    'IpRanges': [{'CidrIp': '172.0.0.0/8'}]}
             ])
         print('Ingress Ohio Successfully Set')
     except ClientError as e:
@@ -541,13 +541,13 @@ def create_instance_middleWeb(server_address):
     instance_ids = []
     for instance in instances:
         instance_ids.append(instance.id)
+    waiter = client.get_waiter('instance_status_ok')
+    waiter.wait(InstanceIds = instance_ids)
     response = client.describe_instances(
         InstanceIds=[
         instance_ids[0],
         ]
     )
-    waiter = client.get_waiter('instance_status_ok')
-    waiter.wait(InstanceIds = instance_ids)
     print("Instances Running and Status OK")
     return response['Reservations'][0]['Instances'][0]['PublicIpAddress']
 
@@ -573,30 +573,58 @@ def main2():
     create_autoscaling(tg_arn)
 
 def create_north_virginia(server_address):
-    print("----- create_north_virginia-----")
+    print("----- create_north_virginia -----")
+    print("-- Deleting Autoscaling --")
     delete_autoscaling()
+    print("-- Deleting Instances --")
     terminate_instances(client, ec2)
+    print("-- Deleting Load Balancer --")
     delete_load_balancer()
+    print("-- Deleting Target Group --")
     delete_target_group()
-    delete_key_pair()
-    create_key_pair()
+    print("-- Deleting KeyPair --")
+    delete_key_pair(client, KEY_PAIR_NAME)
+    print("-- Creating KeyPair --")
+    create_key_pair(client, "TeraKey.pem", KEY_PAIR_NAME)
+    print("-- Deleting Launch Configuration --")
     delete_launch_configuration()
+    print("-- Deleting Security Group --")
     delete_security_group(SECURITY_GROUP_NAME, client)
+    print("-- Creating Security Group --")
     create_security_group(client)
+    print("-- Creating Middle Web --")
     ip_middle_web = create_instance_middleWeb(server_address)
     ip_middle_web = 'http://' + ip_middle_web
+    print("-- Creating Load Balancer --")
     lb_arn = create_load_balancer()
+    print("-- Creating Target Group --")
     tg_arn = create_target_group()
+    print("-- Creating Listener --")
     create_listener(lb_arn, tg_arn)
+    print("-- Creating Launch Configuration --")
     create_launch_configuration2(ip_middle_web)
+    print("-- Creating Auto Scaling --")
     create_autoscaling(tg_arn)
 
 def create_ohio():
-    print("----- create_ohio-----")
+    print("----- create_ohio -----")
+    print("-- Deleting Instances --")
     terminate_instances(client_ohio, ec2_ohio)
+    print("-- Deleting KeyPair --")
+    delete_key_pair(client_ohio, KEY_PAIR_NAME_OHIO)
+    print("-- Creating KeyPair --")
+    create_key_pair(client_ohio, "TeraKey_Ohio.pem", KEY_PAIR_NAME_OHIO)
+    print("-- Deleting Security Group --")
+    delete_security_group(SECURITY_GROUP_NAME, client_ohio)
+    print("-- Deleting Security Group OHIO --")
     delete_security_group(SECURITY_GROUP_NAME_OHIO, client_ohio)
+    print("-- Creating Security Group --")
+    create_security_group(client_ohio)
+    print("-- Creating Security Group OHIO --")
     create_security_group_ohio(client_ohio)
+    print("-- Creating DataBase --")
     ip_db = create_instance_database()
+    print("-- Creating Web Mongo --")
     ip_web_mongo = create_instance_web_mongo(ip_db)
     ip_web_mongo = 'http://' + ip_web_mongo
     return ip_web_mongo
