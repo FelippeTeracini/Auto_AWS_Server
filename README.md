@@ -1,6 +1,10 @@
 # Auto_AWS_Server
 Auto setup for a webserver infrasctructure in AWS using boto3
 
+<p align="center">
+  <img src="Infrastructure.png" title="Infrastructure">
+</p>
+
 ## How to Run
 
 ### Configuring and Installing AWS CLI
