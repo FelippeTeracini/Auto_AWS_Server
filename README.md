@@ -33,5 +33,5 @@ $ python3 main.py
 
 Wait for all the steps to be completed (It can take a while). Then, go to the AWS EC2 management console and get your newly created loadbalancer's DNS. Access the following address on any browser to use the client:
 ```bash
-http://<YOURDNS>:<PORT (DEFAULT=5000)>/docs
+http://<YOURDNS>:<PORT(DEFAULT=5000)>/docs
 ```
