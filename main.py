@@ -111,12 +111,12 @@ def delete_security_group(security_group_name, client):
     except ClientError as e:
         print(e)
 
-def create_security_group(client):
+def create_security_group(client, name):
     response = client.describe_vpcs()
     vpc_id = response.get('Vpcs', [{}])[0].get('VpcId', '')
 
     try:
-        response = client.create_security_group(GroupName=SECURITY_GROUP_NAME,
+        response = client.create_security_group(GroupName=name,
                                                 Description='Teras security group',
                                                 VpcId=vpc_id)
         security_group_id = response['GroupId']
@@ -125,10 +125,6 @@ def create_security_group(client):
         data = client.authorize_security_group_ingress(
             GroupId=security_group_id,
             IpPermissions=[
-                {'IpProtocol': 'tcp',
-                    'FromPort': 22,
-                    'ToPort': 22,
-                    'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},
                 {'IpProtocol': 'tcp',
                     'FromPort': WEBSERVER_PORT,
                     'ToPort': WEBSERVER_PORT,
@@ -503,10 +499,6 @@ def create_security_group_ohio(client):
             GroupId=security_group_id,
             IpPermissions=[
                 {'IpProtocol': 'tcp',
-                    'FromPort': 22,
-                    'ToPort': 22,
-                    'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},
-                {'IpProtocol': 'tcp',
                     'FromPort': 27017,
                     'ToPort': 27017,
                     'IpRanges': [{'CidrIp': '172.0.0.0/8'}]}
@@ -551,29 +543,33 @@ def create_instance_middleWeb(server_address):
     print("Instances Running and Status OK")
     return response['Reservations'][0]['Instances'][0]['PublicIpAddress']
 
-def main2():
-    print("----- MAIN -----")
-    delete_autoscaling()
-    terminate_instances()
-    delete_load_balancer()
-    delete_target_group()
-    deregister_image()
-    delete_key_pair()
-    create_key_pair()
-    delete_security_group()
-    delete_launch_configuration()
-    create_security_group()
-    create_instance()
-    image_id = create_image()
-    terminate_instances()
-    lb_arn = create_load_balancer()
-    tg_arn = create_target_group()
-    create_listener(lb_arn, tg_arn)
-    create_launch_configuration(image_id)
-    create_autoscaling(tg_arn)
+def create_security_group_web_mongo(client, name):
+    response = client.describe_vpcs()
+    vpc_id = response.get('Vpcs', [{}])[0].get('VpcId', '')
+
+    try:
+        response = client.create_security_group(GroupName=name,
+                                                Description='Teras security group',
+                                                VpcId=vpc_id)
+        security_group_id = response['GroupId']
+        print('Security Group Created')
+    except ClientError as e:
+        print(e)
+
+def update_security_group_web_mongo(ip):
+    data = client_ohio.authorize_security_group_ingress(
+            GroupName=SECURITY_GROUP_NAME,
+            IpPermissions=[
+                {'IpProtocol': 'tcp',
+                    'FromPort': WEBSERVER_PORT,
+                    'ToPort': WEBSERVER_PORT,
+                    'IpRanges': [{'CidrIp': ip + '/32'}]}
+            ])
+    print('Ingress Successfully Set')
 
 def create_north_virginia(server_address):
     print("----- create_north_virginia -----")
+    print("")
     print("-- Deleting Autoscaling --")
     delete_autoscaling()
     print("-- Deleting Instances --")
@@ -591,9 +587,11 @@ def create_north_virginia(server_address):
     print("-- Deleting Security Group --")
     delete_security_group(SECURITY_GROUP_NAME, client)
     print("-- Creating Security Group --")
-    create_security_group(client)
+    create_security_group(client, SECURITY_GROUP_NAME)
     print("-- Creating Middle Web --")
     ip_middle_web = create_instance_middleWeb(server_address)
+    print("-- Updating Security Group Web Mongo --")
+    update_security_group_web_mongo(ip_middle_web)
     ip_middle_web = 'http://' + ip_middle_web
     print("-- Creating Load Balancer --")
     lb_arn = create_load_balancer()
@@ -608,6 +606,7 @@ def create_north_virginia(server_address):
 
 def create_ohio():
     print("----- create_ohio -----")
+    print("")
     print("-- Deleting Instances --")
     terminate_instances(client_ohio, ec2_ohio)
     print("-- Deleting KeyPair --")
@@ -619,7 +618,7 @@ def create_ohio():
     print("-- Deleting Security Group OHIO --")
     delete_security_group(SECURITY_GROUP_NAME_OHIO, client_ohio)
     print("-- Creating Security Group --")
-    create_security_group(client_ohio)
+    create_security_group_web_mongo(client_ohio, SECURITY_GROUP_NAME)
     print("-- Creating Security Group OHIO --")
     create_security_group_ohio(client_ohio)
     print("-- Creating DataBase --")
@@ -627,27 +626,12 @@ def create_ohio():
     print("-- Creating Web Mongo --")
     ip_web_mongo = create_instance_web_mongo(ip_db)
     ip_web_mongo = 'http://' + ip_web_mongo
+    print("")
     return ip_web_mongo
 
 def main():
     ip_web_mongo = create_ohio()
     create_north_virginia(ip_web_mongo)
 
-def delete_all():
-    delete_autoscaling()
-    terminate_instances()
-    delete_load_balancer()
-    delete_target_group()
-    deregister_image()
-    delete_key_pair()
-    delete_security_group()
-    delete_launch_configuration()
-
-def create_test_instance():
-    create_instance()
-
-# create_test_instance()
-# create_north_virginia('http://3.88.204.96')
-# print(autoscaling.waiter_names)
-# print(client.waiter_names)
 main()
+
